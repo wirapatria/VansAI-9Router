@@ -169,7 +169,7 @@ export async function handleChat(request, clientRawRequest = null) {
             const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
             cleanRawReq = { ...clientRawRequest, body: cleanBody };
           }
-          return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, apiKeyInfo, { clientBodyBytes: requestBytes });
+          return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, apiKeyInfo, { clientBodyBytes: requestBytes, fromCombo: true });
         },
         log,
         comboName: modelStr,
@@ -183,7 +183,7 @@ export async function handleChat(request, clientRawRequest = null) {
     return handleComboChat({
       body,
       models: comboModels,
-      handleSingleModel: (b, m, opts) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, apiKeyInfo, { ...opts, clientBodyBytes: requestBytes }),
+      handleSingleModel: (b, m, opts) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, apiKeyInfo, { ...opts, clientBodyBytes: requestBytes, fromCombo: true }),
       log,
       comboName: modelStr,
       comboStrategy,
@@ -230,7 +230,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
               const { tools, tool_choice, ...cleanBody } = clientRawRequest.body || {};
               cleanRawReq = { ...clientRawRequest, body: cleanBody };
             }
-            return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, apiKeyInfo, { clientBodyBytes });
+            return handleSingleModelChat(b, m, cleanRawReq, request, apiKey, apiKeyInfo, { clientBodyBytes, fromCombo: true });
           },
           log,
           comboName: modelStr,
@@ -244,7 +244,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       return handleComboChat({
         body,
         models: comboModels,
-        handleSingleModel: (b, m, opts) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, apiKeyInfo, { ...opts, clientBodyBytes }),
+        handleSingleModel: (b, m, opts) => handleSingleModelChat(b, m, clientRawRequest, request, apiKey, apiKeyInfo, { ...opts, clientBodyBytes, fromCombo: true }),
         log,
         comboName: modelStr,
         comboStrategy,
@@ -260,8 +260,10 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
   const { provider, model } = modelInfo;
 
-  // ACL: check if provider is allowed for this API key
-  if (!(await isProviderAllowed(apiKeyInfo, provider))) {
+  // ACL: check if provider is allowed for this API key.
+  // Skipped for combo seats: combo execution is governed by allowedCombos,
+  // so a key restricted to combos (allowedProviders=[]) can still run them.
+  if (!options?.fromCombo && !(await isProviderAllowed(apiKeyInfo, provider))) {
     log.warn("AUTH", `Provider "${provider}" not allowed for API key`, { provider });
     return errorResponse(HTTP_STATUS.FORBIDDEN, `Provider "${provider}" is not allowed for this API key`);
   }
@@ -510,6 +512,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
           connectionProxyPoolId: resolved.proxyPoolId || null,
           vercelRelayUrl: resolved.vercelRelayUrl || "",
           proxyPoolId: resolved.proxyPoolId || null,
+          proxyPoolScope: psd.proxyPoolScope || null,
           strictProxy: resolved.strictProxy === true,
         };
       },

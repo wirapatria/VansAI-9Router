@@ -302,9 +302,13 @@ export default function ConnectionsCard({ providerId, isOAuth }) {
       const res = await fetch("/api/settings", { cache: "no-store" });
       const data = res.ok ? await res.json() : {};
       const current = data.providerStrategies || {};
-      const override = {};
+      // Merge with the existing entry — never drop sibling keys like
+      // rotateStrategy/targetProxyPoolIds owned by the proxy card.
+      const override = { ...(current[providerId] || {}) };
       if (strategy) override.fallbackStrategy = strategy;
+      else delete override.fallbackStrategy;
       if (strategy === "round-robin" && stickyLimit !== "") override.stickyRoundRobinLimit = Number(stickyLimit) || 3;
+      else delete override.stickyRoundRobinLimit;
       const updated = { ...current };
       if (Object.keys(override).length === 0) delete updated[providerId];
       else updated[providerId] = override;

@@ -94,6 +94,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
           proxyPoolIds: selectedPoolIds,
           proxyRotationStrategy: strategy,
           proxyPoolScope: `${providerId}::${model || "*"}`,
+          targetProxyPoolIds: Array.isArray(override.targetProxyPoolIds) ? override.targetProxyPoolIds : [],
         },
       };
     }
@@ -228,11 +229,31 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       connection = availableConnections[0];
     }
 
-    const psdForProxy = providerId === "freebuff"
+    let psdForProxy = providerId === "freebuff"
       ? { ...(connection.providerSpecificData || {}), proxyPoolScope: `${providerId}::${model || ""}` }
       : connection.providerSpecificData?.proxyPoolIds?.length
         ? { ...connection.providerSpecificData, proxyPoolScope: `${providerId}::${model || ""}` }
         : connection.providerSpecificData;
+    // Provider-level Dynamic Rotation: when settings.providerStrategies[providerId].rotateStrategy
+    // is set, bypass the connection static proxy list and resolve from a fresh pool query per request.
+    const dynamicProxyStrategy = providerOverride.rotateStrategy && providerOverride.rotateStrategy !== "none"
+      ? providerOverride.rotateStrategy : null;
+    if (dynamicProxyStrategy && providerId !== "antigravity") {
+      try {
+        const freshProxyPools = await getProxyPools({ isActive: true });
+        const freshProxyPoolIds = freshProxyPools.filter((pp) => pp.proxyUrl).map((pp) => pp.id);
+        if (freshProxyPoolIds.length > 0) {
+          psdForProxy = {
+            ...(connection.providerSpecificData || {}),
+            proxyPoolIds: freshProxyPoolIds,
+            proxyRotationStrategy: dynamicProxyStrategy,
+            targetProxyPoolIds: Array.isArray(providerOverride.targetProxyPoolIds) ? providerOverride.targetProxyPoolIds : [],
+            proxyPoolScope: `${providerId}::${model || ""}`,
+          };
+        }
+      } catch (dynErr) {
+      }
+    }
     const resolvedProxy = providerId === "antigravity"
       ? resolveAntigravityProxyConfig(psdForProxy)
       : await resolveConnectionProxyConfig(psdForProxy || {}, connection.id);
@@ -259,6 +280,11 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
         proxyPoolId: resolvedProxy.proxyPoolId || null,
         noFitPool: resolvedProxy.noFitPool === true,
         strictProxy: resolvedProxy.strictProxy === true,
+        // Pool rotation context (for Smart fitness + pool-fallback retries)
+        proxyPoolIds: Array.isArray(psdForProxy?.proxyPoolIds) ? psdForProxy.proxyPoolIds : [],
+        proxyRotationStrategy: psdForProxy?.proxyRotationStrategy || "none",
+        proxyPoolScope: psdForProxy?.proxyPoolScope || null,
+        targetProxyPoolIds: Array.isArray(psdForProxy?.targetProxyPoolIds) ? psdForProxy.targetProxyPoolIds : [],
       },
       connectionId: connection.id,
       // Include current status for optimization check
